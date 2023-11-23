@@ -1,0 +1,188 @@
+-- Importing necessary services and objects
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Creating or retrieving data store for player data
+local PlayerData = DataStoreService:GetDataStore("PlayerData")
+
+-- Retrieving replicated storage objects
+local Events = ReplicatedStorage:WaitForChild("Events")
+local Units = ReplicatedStorage:WaitForChild("Units")
+local Templates = ReplicatedStorage:WaitForChild("Templates")
+local UI = ReplicatedStorage:WaitForChild("UI")
+
+-- Retrieving specific templates and events
+local UnitTemplate = Templates:WaitForChild("UnitTemplate")
+local SlotTemplate = Templates:WaitForChild("SlotTemplate")
+local AdminCommandFrame = UI:WaitForChild("AdminCommandFrame")
+local SetupInventoryEvent = Events:WaitForChild("SetupInventoryEvent")
+
+-- Default value for shards
+local DefaultShards = 1000
+
+-- Admin user IDs
+local AdminTable = {
+	[904400183] = true, --@HackTeam1x1/Nate, Nathan
+	[2820621369] = true --@SoCurvyyy/Curvy, Curvy
+	[3326831629] = true --@Saber_Connoisseur/Saber, Saber
+}
+
+-- Function to create a table containing player data
+local function CreateTable(Player)
+	local Data = {
+		PlayerStats = {};
+		Units = {}
+	}
+
+	-- Extracting player stats
+	for _, Stat in pairs(Player.Values.PlayerStats:GetChildren()) do
+		Data.PlayerStats[Stat.Name] = Stat.Value
+	end
+
+	-- Extracting unit data
+	for i, Stat in pairs(Player.Values.Units:GetChildren()) do
+		Data.Units[i] = {}
+
+		Data.Units[i]["Value"] = Stat.Value
+		Data.Units[i]["Name"] = Stat.Name
+
+		for _, Value in pairs(Stat:GetChildren()) do
+			Data.Units[i][Value.Name] = Value.Value
+		end
+	end
+
+	return Data
+end
+
+-- Function to save player data to the data store
+local function SaveData(Player)
+	local Data = CreateTable(Player)
+	local PlayerId = "PlayerUserId_" ..Player.UserId
+
+	PlayerData:SetAsync(PlayerId, Data)
+	
+	print("Player data saved:", Player)
+	print(Data)
+end
+
+-- Event handler for when a player joins the game
+Players.PlayerAdded:Connect(function(Player)
+	-- Creating folders for player values
+	local Values = Instance.new("Folder", Player)
+	Values.Name = "Values"
+
+	local PlayerStats = Instance.new("Folder", Values)
+	PlayerStats.Name = "PlayerStats"
+
+	local Shards = Instance.new("IntValue", PlayerStats)
+	Shards.Name = "Shards"
+
+	local Level = Instance.new("IntValue", PlayerStats)
+	Level.Name = "Level"
+
+	local XP = Instance.new("IntValue", PlayerStats)
+	XP.Name = "XP"
+
+	-- Creating slots for the player
+	local Slots = Instance.new("Folder", Values)
+	Slots.Name = "Slots"
+
+	for i = 1, 6 do
+		local Slot = SlotTemplate:Clone()
+		Slot.Name = "Slot" ..i
+		Slot.Parent = Slots
+
+		-- Setting initial slot properties
+		if i > 0 and i < 3 then
+			Slot.Unlocked.Value = true
+		elseif i == 4 then
+			Slot.Level.Value = 10
+		elseif i == 5 then
+			Slot.Level.Value = 25
+		elseif i == 6 then
+			Slot.Level.Value = 50
+		end
+	end
+
+	-- Creating folder for units
+	local UnitsFolder = Instance.new("Folder", Values)
+	UnitsFolder.Name = "Units"
+
+	-- Retrieving player data from the data store
+	local PlayerId = "PlayerUserId_" ..Player.UserId
+	local StatsFolder = PlayerData:GetAsync(PlayerId)
+	
+	if StatsFolder then
+		-- Loading units from stored data
+		for Key, Stat in pairs(StatsFolder.Units) do
+			local Unit = UnitTemplate:Clone()
+			Unit.Parent = UnitsFolder
+			Unit.Name = Stat["Name"] or "Archer"
+			Unit.Value = Stat["Value"]
+
+			local Slot = Slots:FindFirstChild(Unit.Value)
+
+			if Slot then
+				Slot.Unit.Value = Unit
+			end
+
+			-- Setting unit properties from stored data
+			for Key, Stat in pairs(Stat) do
+				if Key ~= "Value" and Key ~= "Index" and Key ~= "Name" then
+					local Value = Unit:FindFirstChild(Key)
+					Value.Value = Stat
+				end
+			end
+		end
+
+		-- Loading player stats from stored data
+		for Key, Stat in pairs(StatsFolder.PlayerStats) do
+			local Value = PlayerStats:FindFirstChild(Key)
+			Value.Value = Stat
+		end
+
+		-- Unlocking slots based on player level
+		for _, Slot in pairs(Slots:GetChildren()) do
+			if PlayerStats.Level.Value >= Slot.Level.Value then
+				Slot.Unlocked.Value = true
+			end
+		end
+		
+		-- Triggering client event to set up inventory
+		SetupInventoryEvent:FireClient(Player)
+	else
+		-- If no data is found, set default values
+		print("No Data!")
+		PlayerStats.Shards.Value = DefaultShards
+
+		local Unit = UnitTemplate:Clone()
+		Unit.Parent = UnitsFolder
+		Unit.Name = "Archer"
+		Unit.Value = "Slot1"
+
+		Slots.Slot1.Unit.Value = Unit
+
+		-- Setting default configurations for the Archer unit
+		local Configurations = Units.Archer.Configurations
+		Unit.Damage.Value = Configurations.Damage.Value
+		Unit.Cooldown.Value = Configurations.Cooldown.Value
+		Unit.Range.Value = Configurations.Range.Value
+	end
+	
+	-- Checking if the player is an admin and adding an admin frame if true
+	if AdminTable[Player.UserId] then
+		local AdminCommandFrame = UI:WaitForChild("AdminCommandFrame")
+		local AdminFrame = AdminCommandFrame:Clone()
+		AdminFrame.Parent = Player:WaitForChild("PlayerGui"):WaitForChild("GameGui")
+	end
+
+	-- Auto-saving player data every 300 seconds (5 minutes)
+	while true do
+		wait(300)
+		SaveData(Player)
+	end
+end)
+
+-- Event handler for when a player leaves the game
+Players.PlayerRemoving:Connect(SaveData)
