@@ -1,0 +1,147 @@
+-- Importing necessary services and objects
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local MessagingService = game:GetService("MessagingService")
+local ServerStorage = game:GetService("ServerStorage")
+
+-- Retrieving objects from ReplicatedStorage
+local Events = ReplicatedStorage:WaitForChild("Events")
+local Functions = ReplicatedStorage:WaitForChild("Functions")
+local Templates = ReplicatedStorage:WaitForChild("Templates")
+
+-- Retrieving specific events and functions
+local ChangeUnitSlotEvent = Events:WaitForChild("ChangeUnitSlotEvent")
+local PlayerShardsEvent = Events:WaitForChild("PlayerShardsEvent")
+local AddUnitFunction = Functions:WaitForChild("AddUnitFunction")
+local GiftedShardsFunction = Functions:WaitForChild("GiftedShardsFunction")
+local BoughtShardsFunction = Functions:WaitForChild("BoughtShardsFunction")
+local UnitXPFunction = Functions:WaitForChild("UnitXPFunction")
+
+-- Retrieving a template for units
+local UnitTemplate = Templates:FindFirstChild("UnitTemplate")
+
+-- Retrieving developer product information
+local GiftShards = ReplicatedStorage:WaitForChild("DeveloperProducts"):WaitForChild("Gift"):GetChildren()
+local BuyShards = ReplicatedStorage:WaitForChild("DeveloperProducts"):WaitForChild("Buy"):GetChildren()
+
+-- Default value for shards
+local DefaultShards = 1000
+
+-- Tables to store developer product IDs
+local GiftIds = {}
+local BuyIds = {}
+
+-- Function to populate tables with developer product IDs
+local function SetupTables()
+	for _, Value in pairs(GiftShards) do
+		GiftIds[Value.Value] = true
+	end
+	
+	for _, Value in pairs(BuyShards) do
+		BuyIds[Value.Value] = true
+	end
+end
+
+-- Initializing tables
+SetupTables()
+
+-- Event handler for changing unit slot
+ChangeUnitSlotEvent.OnServerEvent:Connect(function(Player, UnitValue, SlotValue, Equip)
+	if Equip then
+		SlotValue.Unit.Value = UnitValue
+		UnitValue.Value = SlotValue.Name
+	else
+		SlotValue.Unit.Value = nil
+		UnitValue.Value = ""
+	end
+end)
+
+-- Event handler for updating player shards
+PlayerShardsEvent.OnServerEvent:Connect(function(Player, Amount, Positive)
+	if Positive then
+		Player.Values.PlayerStats.Shards.Value += Amount
+	else
+		Player.Values.PlayerStats.Shards.Value -= Amount
+	end
+end)
+
+-- Function for adding a unit to a player's inventory
+AddUnitFunction.OnServerInvoke = function(Player, UnitObject, UnitIndex, AlreadyExists)
+	local UnitValue
+	
+	if not AlreadyExists then
+		local UnitConfigurations = UnitObject:FindFirstChild("Configurations")
+		
+		UnitValue = UnitTemplate:Clone()
+		UnitValue.Parent = Player.Values.Units
+		UnitValue.Name = UnitObject.Name
+		UnitValue.Damage.Value = UnitConfigurations.Damage.Value
+		UnitValue.Cooldown.Value = UnitConfigurations.Cooldown.Value
+		UnitValue.Range.Value = UnitConfigurations.Range.Value
+	else
+		UnitValue = UnitTemplate:Clone()
+	end
+		
+	return UnitValue
+end
+
+-- Function for handling gifted shards
+GiftedShardsFunction.OnServerInvoke = function(Player, Recipient, Amount)
+	local Shards = Recipient.Values.PlayerStats.Shards
+
+	if Amount > 0 then
+		Shards.Value += Amount
+		print(Player.Name.. " gifted " ..Recipient.Name.. " " ..Amount.. " shards!")
+		return true
+	else
+		return false, "Gift failed. Invalid amount."
+	end
+end
+
+-- Function for handling bought shards
+BoughtShardsFunction.OnServerInvoke = function(Player, Amount)
+	local Shards = Player.Values.PlayerStats.Shards
+	
+	if Amount > 0 then
+		Shards.Value += Amount
+		print(Player.Name.. " bought " ..Amount.. " shards!")
+		return true
+	else
+		return false, "Purchase failed. Invalid amount."
+	end
+end
+
+-- Function to check if a unit has leveled up
+local function CheckLevelUp(UnitValue)
+	if UnitValue.XP.Value >= UnitValue.RequiredXP.Value then
+		UnitValue.XP.Value -= UnitValue.RequiredXP.Value
+		return true
+	else
+		return false
+	end
+end
+
+-- Function to handle unit XP
+UnitXPFunction.OnServerInvoke = function(Player, UnitValue, XP)
+	if UnitValue then
+		if XP > 0 then
+			UnitValue.XP.Value += XP
+			
+			local KeepLeveling = true
+			
+			-- Continuously check for level up
+			repeat
+				wait(0.1)
+				
+				local LeveledUp = CheckLevelUp(UnitValue)
+				
+				if LeveledUp then
+					UnitValue.Level.Value += 1
+				else
+					KeepLeveling = false
+				end
+			until KeepLeveling == false
+		end
+	end
+end
